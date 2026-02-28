@@ -2,37 +2,10 @@
     "actorSpecification": 1,
     "name": "ingatlancom-scraper",
     "title": "Ingatlan.com Scraper",
-    "description": "Scrapes property listings from ingatlan.com including price, size, location and rooms. Perfect for real estate market analysis and price monitoring.",
-    "version": "1.0",
+    "description": "Scrapes property listings from ingatlan.com including price, size, location and rooms.",
+    "version": "0.0",
     "buildTag": "latest",
-    "environmentVariables": [],
     "dockerfile": "./Dockerfile",
     "readme": "./README.md",
-    "input": "./INPUT_SCHEMA.json",
-    "storages": {
-        "dataset": {
-            "actorSpecification": 1,
-            "title": "Ingatlan.com listings",
-            "views": {
-                "overview": {
-                    "title": "Overview",
-                    "transformation": {
-                        "fields": ["price", "address", "size", "rooms", "type", "link", "scrapedAt"]
-                    },
-                    "display": {
-                        "component": "table",
-                        "properties": {
-                            "price": { "label": "Ár", "format": "text" },
-                            "address": { "label": "Cím", "format": "text" },
-                            "size": { "label": "Méret", "format": "text" },
-                            "rooms": { "label": "Szobák", "format": "text" },
-                            "type": { "label": "Típus", "format": "text" },
-                            "link": { "label": "Link", "format": "link" },
-                            "scrapedAt": { "label": "Scrape ideje", "format": "datetime" }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    "input": "./INPUT_SCHEMA.json"
 }
