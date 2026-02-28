@@ -1,5 +1,5 @@
-# Apify's lightweight Node image (no browser needed)
-FROM apify/actor-node:20
+# Playwright-képes Apify image - tartalmaz Chromium böngészőt
+FROM apify/actor-node-playwright-chrome:20
 
 # Copy package files
 COPY package*.json ./
