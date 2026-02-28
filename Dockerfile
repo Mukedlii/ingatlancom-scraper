@@ -1,5 +1,5 @@
-# Apify's Playwright+Chrome image
-FROM apify/actor-node-playwright-chrome:18
+# Apify's lightweight Node image (no browser needed)
+FROM apify/actor-node:18
 
 # Copy package files
 COPY package*.json ./

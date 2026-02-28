@@ -1,5 +1,6 @@
 import { Actor } from 'apify';
-import { PlaywrightCrawler, sleep } from 'crawlee';
+import { HttpCrawler } from 'crawlee';
+import * as cheerio from 'cheerio';
 
 await Actor.init();
 
@@ -10,131 +11,128 @@ const {
     maxPages = 5,
     minPrice,
     maxPrice,
-    minSize,
-    maxSize,
 } = input;
 
 console.log('🏠 Ingatlan.com Scraper indítása...');
 console.log(`URL: ${searchUrl}`);
 console.log(`Max oldalak: ${maxPages}`);
 
-const results = [];
+let totalResults = 0;
 
-const crawler = new PlaywrightCrawler({
-    headless: true,
+const crawler = new HttpCrawler({
     maxRequestRetries: 3,
+    maxConcurrency: 1,
 
-    async requestHandler({ page, request, log }) {
+    // Ember-szerű fejlécek a bot-védelem megkerüléséhez
+    additionalMimeTypes: ['text/html'],
+    preNavigationHooks: [
+        async ({ request }) => {
+            request.headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Upgrade-Insecure-Requests': '1',
+            };
+        },
+    ],
+
+    async requestHandler({ request, body, log }) {
         log.info(`Feldolgozás: ${request.url}`);
 
-        // Várjuk meg az oldalak betöltését
-        await page.waitForSelector('.listing__card, .listing-card, [class*="listing"]', {
-            timeout: 15000,
-        }).catch(() => log.warning('Listázás selector nem található, próbálkozás másképp...'));
+        const $ = cheerio.load(body);
+        const listings = [];
 
-        await sleep(2000);
+        // Ingatlan.com listing kártyák
+        $('article, .listing-card, [class*="listing__card"], .property-card').each((_, el) => {
+            try {
+                const card = $(el);
 
-        // Scrape az összes hirdetést az oldalon
-        const listings = await page.evaluate(() => {
-            const items = [];
+                const price = card.find('[class*="price"], .price').first().text().trim();
+                const address = card.find('[class*="address"], [class*="location"], .city').first().text().trim();
+                const size = card.find('[class*="area"], [class*="size"], .area').first().text().trim();
+                const rooms = card.find('[class*="room"]').first().text().trim();
+                const link = card.find('a').first().attr('href') ?? '';
+                const imageUrl = card.find('img').first().attr('src') ?? '';
 
-            // Próbáljuk meg a különböző lehetséges selectorokat
-            const cards = document.querySelectorAll(
-                '.listing__card, .listing-card, article[class*="listing"], .property-card, [data-testid="listing-card"]'
-            );
-
-            cards.forEach((card) => {
-                try {
-                    // Ár kinyerése
-                    const priceEl = card.querySelector(
-                        '[class*="price"], .price, .listing__price, [data-testid="price"]'
-                    );
-                    const price = priceEl?.innerText?.trim() ?? '';
-
-                    // Cím kinyerése
-                    const addressEl = card.querySelector(
-                        '[class*="address"], .address, .listing__address, [class*="location"]'
-                    );
-                    const address = addressEl?.innerText?.trim() ?? '';
-
-                    // Méret kinyerése
-                    const sizeEl = card.querySelector(
-                        '[class*="size"], [class*="area"], .listing__size'
-                    );
-                    const size = sizeEl?.innerText?.trim() ?? '';
-
-                    // Szobák száma
-                    const roomsEl = card.querySelector(
-                        '[class*="room"], .rooms, .listing__rooms'
-                    );
-                    const rooms = roomsEl?.innerText?.trim() ?? '';
-
-                    // Link kinyerése
-                    const linkEl = card.querySelector('a');
-                    const link = linkEl?.href ?? '';
-
-                    // Kép URL
-                    const imgEl = card.querySelector('img');
-                    const imageUrl = imgEl?.src ?? imgEl?.dataset?.src ?? '';
-
-                    // Típus (eladó/kiadó)
-                    const typeEl = card.querySelector('[class*="type"], [class*="badge"]');
-                    const type = typeEl?.innerText?.trim() ?? '';
-
-                    // Csak akkor adjuk hozzá ha van valami hasznos adat
-                    if (price || address || link) {
-                        items.push({
-                            price,
-                            address,
-                            size,
-                            rooms,
-                            type,
-                            link: link.startsWith('http') ? link : `https://ingatlan.com${link}`,
-                            imageUrl,
-                            scrapedAt: new Date().toISOString(),
-                        });
-                    }
-                } catch (e) {
-                    // Silently skip problematic cards
+                if (price || address || link) {
+                    listings.push({
+                        price,
+                        address,
+                        size,
+                        rooms,
+                        link: link.startsWith('http') ? link : `https://ingatlan.com${link}`,
+                        imageUrl,
+                        scrapedAt: new Date().toISOString(),
+                    });
                 }
-            });
-
-            return items;
+            } catch (e) {
+                // skip
+            }
         });
 
-        // Szűrés ha vannak feltételek megadva
+        // Ha a fenti nem talált semmit, próbáljuk a JSON-LD adatokat
+        if (listings.length === 0) {
+            $('script[type="application/ld+json"]').each((_, el) => {
+                try {
+                    const json = JSON.parse($(el).html());
+                    const items = Array.isArray(json) ? json : [json];
+                    for (const item of items) {
+                        if (item['@type'] === 'RealEstateListing' || item.name) {
+                            listings.push({
+                                price: item.price ?? item.offers?.price ?? '',
+                                address: item.address?.streetAddress ?? item.name ?? '',
+                                size: item.floorSize?.value ?? '',
+                                rooms: item.numberOfRooms ?? '',
+                                link: item.url ?? request.url,
+                                imageUrl: item.image ?? '',
+                                scrapedAt: new Date().toISOString(),
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // skip
+                }
+            });
+        }
+
+        log.info(`✅ ${listings.length} hirdetés találva ezen az oldalon`);
+
+        // Szűrés és mentés
         for (const listing of listings) {
-            // Ár szűrés
             if (minPrice || maxPrice) {
                 const priceNum = parseInt(listing.price.replace(/\D/g, ''));
                 if (minPrice && priceNum < minPrice) continue;
                 if (maxPrice && priceNum > maxPrice) continue;
             }
-
-            results.push(listing);
             await Actor.pushData(listing);
+            totalResults++;
         }
 
-        log.info(`✅ ${listings.length} hirdetés találva ezen az oldalon`);
-
-        // Következő oldal keresése
+        // Következő oldal
         const currentPage = request.userData?.pageNum ?? 1;
-        if (currentPage < maxPages) {
-            const nextPageUrl = await page.evaluate((pageNum) => {
-                const nextBtn = document.querySelector(
-                    '[aria-label="Következő oldal"], .pagination__next, [class*="next"], a[rel="next"]'
-                );
-                if (nextBtn?.href) return nextBtn.href;
+        if (currentPage < maxPages && listings.length > 0) {
+            // Próbáljuk a pagination linket
+            const nextLink = $('a[rel="next"], .pagination__next, [aria-label="Következő"]').attr('href');
 
+            let nextUrl;
+            if (nextLink) {
+                nextUrl = nextLink.startsWith('http') ? nextLink : `https://ingatlan.com${nextLink}`;
+            } else {
                 // URL alapú lapozás
-                const url = new URL(window.location.href);
-                url.searchParams.set('page', pageNum + 1);
-                return url.toString();
-            }, currentPage);
+                const url = new URL(request.url);
+                url.searchParams.set('page', currentPage + 1);
+                nextUrl = url.toString();
+            }
 
-            if (nextPageUrl && nextPageUrl !== request.url) {
+            if (nextUrl !== request.url) {
                 await crawler.addRequests([{
-                    url: nextPageUrl,
+                    url: nextUrl,
                     userData: { pageNum: currentPage + 1 },
                 }]);
             }
@@ -151,6 +149,6 @@ await crawler.run([{
     userData: { pageNum: 1 },
 }]);
 
-console.log(`\n🎉 Kész! Összesen ${results.length} hirdetés mentve.`);
+console.log(`\n🎉 Kész! Összesen ${totalResults} hirdetés mentve.`);
 
 await Actor.exit();
