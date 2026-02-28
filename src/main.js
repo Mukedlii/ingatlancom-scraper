@@ -19,11 +19,17 @@ console.log(`Max oldalak: ${maxPages}`);
 
 let totalResults = 0;
 
-const crawler = new HttpCrawler({
-    maxRequestRetries: 3,
-    maxConcurrency: 1,
+// Apify proxy - megkerüli a Cloudflare/403 védelmet
+const proxyConfiguration = await Actor.createProxyConfiguration({
+    useApifyProxy: true,
+    apifyProxyGroups: ['RESIDENTIAL'],
+});
 
-    // Ember-szerű fejlécek a bot-védelem megkerüléséhez
+const crawler = new HttpCrawler({
+    maxRequestRetries: 5,
+    maxConcurrency: 1,
+    proxyConfiguration,
+
     additionalMimeTypes: ['text/html'],
     preNavigationHooks: [
         async ({ request }) => {
@@ -48,11 +54,9 @@ const crawler = new HttpCrawler({
         const $ = cheerio.load(body);
         const listings = [];
 
-        // Ingatlan.com listing kártyák
         $('article, .listing-card, [class*="listing__card"], .property-card').each((_, el) => {
             try {
                 const card = $(el);
-
                 const price = card.find('[class*="price"], .price').first().text().trim();
                 const address = card.find('[class*="address"], [class*="location"], .city').first().text().trim();
                 const size = card.find('[class*="area"], [class*="size"], .area').first().text().trim();
@@ -71,12 +75,10 @@ const crawler = new HttpCrawler({
                         scrapedAt: new Date().toISOString(),
                     });
                 }
-            } catch (e) {
-                // skip
-            }
+            } catch (e) { /* skip */ }
         });
 
-        // Ha a fenti nem talált semmit, próbáljuk a JSON-LD adatokat
+        // JSON-LD fallback
         if (listings.length === 0) {
             $('script[type="application/ld+json"]').each((_, el) => {
                 try {
@@ -95,15 +97,12 @@ const crawler = new HttpCrawler({
                             });
                         }
                     }
-                } catch (e) {
-                    // skip
-                }
+                } catch (e) { /* skip */ }
             });
         }
 
         log.info(`✅ ${listings.length} hirdetés találva ezen az oldalon`);
 
-        // Szűrés és mentés
         for (const listing of listings) {
             if (minPrice || maxPrice) {
                 const priceNum = parseInt(listing.price.replace(/\D/g, ''));
@@ -114,27 +113,19 @@ const crawler = new HttpCrawler({
             totalResults++;
         }
 
-        // Következő oldal
         const currentPage = request.userData?.pageNum ?? 1;
         if (currentPage < maxPages && listings.length > 0) {
-            // Próbáljuk a pagination linket
             const nextLink = $('a[rel="next"], .pagination__next, [aria-label="Következő"]').attr('href');
-
             let nextUrl;
             if (nextLink) {
                 nextUrl = nextLink.startsWith('http') ? nextLink : `https://ingatlan.com${nextLink}`;
             } else {
-                // URL alapú lapozás
                 const url = new URL(request.url);
                 url.searchParams.set('page', currentPage + 1);
                 nextUrl = url.toString();
             }
-
             if (nextUrl !== request.url) {
-                await crawler.addRequests([{
-                    url: nextUrl,
-                    userData: { pageNum: currentPage + 1 },
-                }]);
+                await crawler.addRequests([{ url: nextUrl, userData: { pageNum: currentPage + 1 } }]);
             }
         }
     },
@@ -144,10 +135,7 @@ const crawler = new HttpCrawler({
     },
 });
 
-await crawler.run([{
-    url: searchUrl,
-    userData: { pageNum: 1 },
-}]);
+await crawler.run([{ url: searchUrl, userData: { pageNum: 1 } }]);
 
 console.log(`\n🎉 Kész! Összesen ${totalResults} hirdetés mentve.`);
 
