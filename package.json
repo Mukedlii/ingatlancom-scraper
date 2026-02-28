@@ -1,7 +1,7 @@
 {
     "name": "ingatlancom-scraper",
-    "version": "2.0.0",
-    "description": "Ingatlan.com scraper Playwright-tal - Cloudflare bypass",
+    "version": "3.0.0",
+    "description": "Ingatlan.com scraper - Stealth mode + Playwright + Cloudflare bypass",
     "type": "module",
     "main": "src/main.js",
     "scripts": {
@@ -11,7 +11,9 @@
         "apify": "^3.0.0",
         "cheerio": "^1.2.0",
         "crawlee": "^3.0.0",
-        "playwright": "^1.40.0"
+        "playwright": "^1.58.2",
+        "playwright-extra": "^4.3.6",
+        "puppeteer-extra-plugin-stealth": "^2.11.2"
     },
     "engines": {
         "node": ">=18.0.0"

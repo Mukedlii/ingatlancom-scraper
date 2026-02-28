@@ -1,5 +1,21 @@
 import { Actor } from 'apify';
 import { PlaywrightCrawler, sleep } from 'crawlee';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+chromium.use(StealthPlugin());
+
+// Stabilitás: ne omoljon össze unhandled hibákon, inkább logoljuk és lépjünk ki.
+process.on('unhandledRejection', (reason) => {
+    // eslint-disable-next-line no-console
+    console.error('UNHANDLED_REJECTION', reason);
+    process.exitCode = 1;
+});
+process.on('uncaughtException', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('UNCAUGHT_EXCEPTION', err);
+    process.exitCode = 1;
+});
 
 await Actor.init();
 
@@ -12,7 +28,7 @@ const {
     maxPrice,
 } = input;
 
-console.log('🏠 Ingatlan.com Scraper (Playwright) indítása...');
+console.log('🏠 Ingatlan.com Scraper v7 indítása...');
 console.log(`URL: ${searchUrl}`);
 console.log(`Max oldalak: ${maxPages}`);
 
@@ -27,134 +43,195 @@ const crawler = new PlaywrightCrawler({
     proxyConfiguration,
     maxRequestRetries: 3,
     maxConcurrency: 1,
-    navigationTimeoutSecs: 60,
-    requestHandlerTimeoutSecs: 120,
+    navigationTimeoutSecs: 90,
+    requestHandlerTimeoutSecs: 180,
 
     launchContext: {
+        launcher: chromium,
         launchOptions: {
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
             ],
         },
     },
 
     preNavigationHooks: [
         async ({ page }) => {
-            // Elrejtjük a bot jeleket
-            await page.addInitScript(() => {
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                Object.defineProperty(navigator, 'languages', { get: () => ['hu-HU', 'hu', 'en-US'] });
-                window.chrome = { runtime: {} };
-            });
+            const viewports = [
+                { width: 1366, height: 768 },
+                { width: 1440, height: 900 },
+                { width: 1920, height: 1080 },
+                { width: 1536, height: 864 },
+            ];
+            const vp = viewports[Math.floor(Math.random() * viewports.length)];
+            await page.setViewportSize(vp);
 
             await page.setExtraHTTPHeaders({
-                'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'max-age=0',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1',
+            });
+
+            await page.addInitScript(() => {
+                Object.defineProperty(screen, 'width', { get: () => 1920 });
+                Object.defineProperty(screen, 'height', { get: () => 1080 });
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => {
+                        const arr = [
+                            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                            { name: 'Native Client', filename: 'internal-nacl-plugin' },
+                        ];
+                        arr.item = i => arr[i];
+                        arr.namedItem = n => arr.find(p => p.name === n);
+                        arr.refresh = () => {};
+                        return arr;
+                    }
+                });
+                Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+                Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                    if (parameter === 37445) return 'Intel Inc.';
+                    if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+                    return getParameter.call(this, parameter);
+                };
+                if (!window.chrome) {
+                    window.chrome = {
+                        app: { isInstalled: false },
+                        runtime: {
+                            onConnect: { addListener: () => {}, removeListener: () => {} },
+                            onMessage: { addListener: () => {}, removeListener: () => {} },
+                        },
+                        csi: () => {},
+                        loadTimes: () => {},
+                    };
+                }
+                if (window.Notification) {
+                    Object.defineProperty(Notification, 'permission', { get: () => 'default' });
+                }
             });
         },
     ],
 
     async requestHandler({ page, request, log }) {
-        log.info(`📄 Oldal betöltése: ${request.url}`);
+        log.info(`📄 Betöltés: ${request.url}`);
 
-        // Várakozás hogy Cloudflare challenge lefusson
-        await sleep(3000);
+        await sleep(2000 + Math.random() * 3000);
 
-        const title = await page.title();
-        if (title.includes('Just a moment') || title.includes('Cloudflare')) {
-            log.info('⏳ Cloudflare challenge észlelve, várakozás...');
-            await sleep(8000);
+        // Cloudflare challenge kezelés
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const title = await page.title();
+            const bodyText = await page.evaluate(() => document.body?.innerText?.substring(0, 300) ?? '');
+            if (title.includes('Just a moment') || title.includes('Cloudflare') || bodyText.includes('Checking your browser')) {
+                log.info(`⏳ Cloudflare challenge (${attempt + 1}/3), várakozás 10mp...`);
+                await sleep(10000);
+            } else break;
         }
 
-        // Várjuk a tartalom megjelenését
+        // Cookie banner bezárása
         try {
-            await page.waitForSelector(
-                '[class*="listing"], [class*="property"], article, .card',
-                { timeout: 20000 }
-            );
+            await page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', { timeout: 4000 });
+            log.info('🍪 Cookie elfogadva');
+            await sleep(1500);
+        } catch { /* nincs cookie banner */ }
+
+        // Emberi scroll
+        await humanScroll(page);
+
+        // Várjuk a kártyák megjelenését
+        try {
+            await page.waitForSelector('.listing-card', { timeout: 25000 });
         } catch {
-            log.warning('Nem találtuk a listázó elemet, megpróbáljuk így is...');
+            log.warning('⚠️ .listing-card nem jelent meg!');
         }
 
-        // Scroll - lazy-load elemek betöltéséhez
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
-        await sleep(1500);
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-        await sleep(1500);
-
-        // Adatok kinyerése
+        // Adatok kinyerése - PONTOS szelektorok a valódi HTML alapján
         const listings = await page.evaluate(() => {
             const results = [];
+            const norm = (s) => (s ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 
-            const selectors = [
-                '[class*="listing-card"]',
-                '[class*="property-card"]',
-                '[class*="listing__card"]',
-                'article[class*="listing"]',
-                '[data-testid*="listing"]',
-                '[data-id]',
-            ];
-
-            let cards = [];
-            for (const sel of selectors) {
-                const found = document.querySelectorAll(sel);
-                if (found.length > 0) {
-                    cards = Array.from(found);
-                    break;
-                }
-            }
+            const cards = Array.from(document.querySelectorAll('a.listing-card[data-listing-id]'));
 
             for (const card of cards) {
                 try {
-                    const priceEl = card.querySelector('[class*="price"], [class*="ar"], [data-testid*="price"]');
-                    const price = priceEl?.textContent?.trim() ?? '';
-
-                    const addrEl = card.querySelector('[class*="address"], [class*="location"], [class*="city"], [class*="cim"]');
-                    const address = addrEl?.textContent?.trim() ?? '';
-
-                    const sizeEl = card.querySelector('[class*="area"], [class*="size"], [class*="meret"]');
-                    const size = sizeEl?.textContent?.trim() ?? '';
-
-                    const roomEl = card.querySelector('[class*="room"], [class*="szoba"]');
-                    const rooms = roomEl?.textContent?.trim() ?? '';
-
-                    const linkEl = card.querySelector('a');
-                    const href = linkEl?.getAttribute('href') ?? '';
+                    // ----- LINK + ID -----
+                    const href = (card.getAttribute('href') ?? '').trim();
+                    const listingId = card.getAttribute('data-listing-id') ?? '';
                     const link = href.startsWith('http') ? href : `https://ingatlan.com${href}`;
 
-                    const imgEl = card.querySelector('img');
-                    const imageUrl = imgEl?.getAttribute('src') ?? imgEl?.getAttribute('data-src') ?? '';
+                    // ----- ÁR -----
+                    const price = norm(
+                        card.querySelector('.fw-bold.fs-5.text-onyx')?.textContent
+                        ?? card.querySelector('.fw-bold.fs-5')?.textContent
+                        ?? ''
+                    );
 
-                    if (price || address || href) {
-                        results.push({ price, address, size, rooms, link, imageUrl });
+                    // ----- ÁR / m² -----
+                    const pricePerSqm = norm(card.querySelector('.listing-card-area-prices')?.textContent ?? '');
+
+                    // ----- CÍM -----
+                    const address = norm(
+                        card.querySelector('.listing-card-content .d-block.fs-7.text-gray-900')?.textContent
+                        ?? card.querySelector('.listing-card-content .d-block.fs-7')?.textContent
+                        ?? ''
+                    );
+
+                    // ----- ALAPTERÜLET + SZOBÁK -----
+                    let size = '';
+                    let rooms = '';
+
+                    // A színek változhatnak (text-gray-400 vs text-blue-100), ezért ne class alapján szűrjünk.
+                    const blocks = Array.from(card.querySelectorAll('div.d-flex.flex-column'));
+                    for (const b of blocks) {
+                        const label = norm(b.querySelector('span.fs-7')?.textContent).toLowerCase();
+                        const value = norm(
+                            b.querySelector('span.fs-6.fw-bold')?.textContent
+                            ?? b.querySelector('span.fw-bold')?.textContent
+                            ?? ''
+                        );
+                        if (!label || !value) continue;
+
+                        if (label.includes('alapter')) size = value;
+                        if (label.includes('szob')) rooms = value;
                     }
-                } catch { /* skip */ }
-            }
 
-            // JSON-LD fallback ha nem találtunk kártyákat
-            if (results.length === 0) {
-                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-                for (const script of scripts) {
-                    try {
-                        const data = JSON.parse(script.textContent);
-                        const items = Array.isArray(data) ? data : [data];
-                        for (const item of items) {
-                            if (item['@type'] === 'RealEstateListing' || item.name) {
-                                results.push({
-                                    price: String(item.price ?? item.offers?.price ?? ''),
-                                    address: item.address?.streetAddress ?? item.name ?? '',
-                                    size: String(item.floorSize?.value ?? ''),
-                                    rooms: String(item.numberOfRooms ?? ''),
-                                    link: item.url ?? '',
-                                    imageUrl: item.image ?? '',
-                                });
-                            }
-                        }
-                    } catch { /* skip */ }
+                    // ----- KÉP -----
+                    const imgEl = card.querySelector('img');
+                    const imageUrl = imgEl?.getAttribute('src')
+                        ?? imgEl?.getAttribute('data-src')
+                        ?? '';
+
+                    if (link && link !== 'https://ingatlan.com') {
+                        results.push({
+                            listingId,
+                            price,
+                            pricePerSqm,
+                            address,
+                            size,
+                            rooms,
+                            link,
+                            imageUrl,
+                        });
+                    }
+                } catch {
+                    /* skip */
                 }
             }
 
@@ -166,7 +243,7 @@ const crawler = new PlaywrightCrawler({
         const now = new Date().toISOString();
         for (const listing of listings) {
             if (minPrice || maxPrice) {
-                const priceNum = parseInt(listing.price.replace(/\D/g, ''));
+                const priceNum = parseInt((listing.price ?? '').replace(/\D/g, ''));
                 if (minPrice && priceNum < minPrice) continue;
                 if (maxPrice && priceNum > maxPrice) continue;
             }
@@ -174,34 +251,45 @@ const crawler = new PlaywrightCrawler({
             totalResults++;
         }
 
-        // Következő oldal keresése
+        // Következő oldal
         const currentPage = request.userData?.pageNum ?? 1;
         if (currentPage < maxPages && listings.length > 0) {
             const nextUrl = await page.evaluate(() => {
-                const nextEl = document.querySelector(
-                    'a[rel="next"], [class*="pagination__next"], [aria-label="Következő"], [aria-label="next"]'
-                );
+                const nextEl = document.querySelector('a[rel="next"]');
                 return nextEl?.href ?? null;
             });
 
-            if (nextUrl && nextUrl !== request.url) {
-                log.info(`➡️ Következő oldal: ${nextUrl}`);
-                await crawler.addRequests([{ url: nextUrl, userData: { pageNum: currentPage + 1 } }]);
-            } else {
+            const targetUrl = nextUrl ?? (() => {
                 const url = new URL(request.url);
                 url.searchParams.set('page', String(currentPage + 1));
-                const fallbackUrl = url.toString();
-                if (fallbackUrl !== request.url) {
-                    await crawler.addRequests([{ url: fallbackUrl, userData: { pageNum: currentPage + 1 } }]);
-                }
+                return url.toString();
+            })();
+
+            if (targetUrl !== request.url) {
+                log.info(`➡️ Következő oldal (${currentPage + 1}): ${targetUrl}`);
+                await sleep(2000 + Math.random() * 2000);
+                await crawler.addRequests([{ url: targetUrl, userData: { pageNum: currentPage + 1 } }]);
             }
         }
     },
 
     failedRequestHandler({ request, log }) {
-        log.error(`❌ Sikertelen: ${request.url}`);
+        log.error(`❌ Végleg sikertelen: ${request.url}`);
     },
 });
+
+async function humanScroll(page) {
+    await page.evaluate(async () => {
+        const totalHeight = document.body.scrollHeight;
+        const step = Math.floor(totalHeight / 8);
+        for (let pos = 0; pos < totalHeight; pos += step) {
+            window.scrollTo(0, pos);
+            await new Promise(r => setTimeout(r, 300 + Math.random() * 400));
+        }
+        window.scrollTo(0, 0);
+        await new Promise(r => setTimeout(r, 500));
+    });
+}
 
 await crawler.run([{ url: searchUrl, userData: { pageNum: 1 } }]);
 
