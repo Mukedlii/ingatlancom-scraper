@@ -1,5 +1,5 @@
 # Apify's lightweight Node image (no browser needed)
-FROM apify/actor-node:18
+FROM apify/actor-node:20
 
 # Copy package files
 COPY package*.json ./
