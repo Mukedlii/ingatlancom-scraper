@@ -1,0 +1,19 @@
+{
+    "name": "ingatlancom-scraper",
+    "version": "1.0.0",
+    "description": "Ingatlan.com scraper - Leszedi az ingatlan hirdetéseket árral, mérettel és helyszínnel",
+    "type": "module",
+    "main": "src/main.js",
+    "scripts": {
+        "start": "node src/main.js",
+        "test": "node src/main.js"
+    },
+    "dependencies": {
+        "apify": "^3.0.0",
+        "crawlee": "^3.0.0",
+        "playwright": "^1.40.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

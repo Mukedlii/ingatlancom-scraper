@@ -1,0 +1,36 @@
+{
+    "title": "Ingatlan.com Scraper Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "searchUrl": {
+            "title": "Keresési URL",
+            "type": "string",
+            "description": "Az ingatlan.com keresési URL amit le szeretnél scrape-elni",
+            "default": "https://ingatlan.com/lista/elado+lakas+budapest",
+            "editor": "textfield"
+        },
+        "maxPages": {
+            "title": "Maximum oldalak száma",
+            "type": "integer",
+            "description": "Hány oldalt scrape-eljen (1 oldal = ~20 hirdetés)",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 50,
+            "editor": "number"
+        },
+        "minPrice": {
+            "title": "Minimum ár (Ft)",
+            "type": "integer",
+            "description": "Minimum ár szűrő forintban (opcionális)",
+            "editor": "number"
+        },
+        "maxPrice": {
+            "title": "Maximum ár (Ft)",
+            "type": "integer",
+            "description": "Maximum ár szűrő forintban (opcionális)",
+            "editor": "number"
+        }
+    },
+    "required": ["searchUrl"]
+}
