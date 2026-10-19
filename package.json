@@ -1,21 +1,18 @@
 {
-    "name": "ingatlancom-scraper",
-    "version": "3.0.0",
-    "description": "Ingatlan.com scraper - Stealth mode + Playwright + Cloudflare bypass",
-    "type": "module",
-    "main": "src/main.js",
-    "scripts": {
-        "start": "node src/main.js"
-    },
-    "dependencies": {
-        "apify": "^3.0.0",
-        "cheerio": "^1.2.0",
-        "crawlee": "^3.0.0",
-        "playwright": "^1.58.2",
-        "playwright-extra": "^4.3.6",
-        "puppeteer-extra-plugin-stealth": "^2.11.2"
-    },
-    "engines": {
-        "node": ">=18.0.0"
-    }
+  "name": "ingatlancom-scraper",
+  "version": "4.0.0",
+  "private": true,
+  "description": "Magánhirdetések Telegram értesítője mobil API adapterrel",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env notifier/worker.js",
+    "check": "node --env-file-if-exists=.env notifier/worker.js --once",
+    "probe": "node --env-file-if-exists=.env notifier/probe.js",
+    "test:telegram": "node --env-file-if-exists=.env notifier/test-message.js",
+    "test": "node --test test/*.test.js",
+    "test:live": "node --env-file-if-exists=.env integration/live.js"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  }
 }
