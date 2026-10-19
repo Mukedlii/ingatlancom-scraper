@@ -1,6 +1,6 @@
 # Ingatlan Telegram-értesítő
 
-Node.js-alapú, Apify és böngészőautomatizálás nélküli értesítő. Jelenleg **fejlesztési alap, nem igazoltan működő éles ingatlan.com-adatkapcsolat**. Nincs Vercel-integráció, telepítés vagy automatikusan indított időzítés.
+Node.js-alapú, Apify és böngészőautomatizálás nélküli értesítő. **Az ingatlan.com mobil keresési adatkapcsolata élő HTTP 200 válasszal ellenőrzött.** A teljes szolgáltatás még nincs telepítve vagy elindítva. Nincs Vercel-integráció, telepítés vagy automatikusan indított időzítés.
 
 ## Ami elkészült
 
@@ -14,11 +14,11 @@ Node.js-alapú, Apify és böngészőautomatizálás nélküli értesítő. Jele
 - Konzervatív tartalmi egyezés: teljes normalizált leírás, fizikai jellemzők és legalább két azonos kép-URL. Az ár nem része az egyezésnek.
 - Node beépített tesztfuttatóval tesztek, köztük teljes HTTP küldési folyamat helyi Telegram-helyettesítővel.
 
-## Ami még nincs igazolva / nincs megvalósítva
+## Élő ellenőrzés és további korlátok
 
-- A végleges, interceptorok után előálló API-URL, az auth követelménye és az éles JSON-válasz. A host gyökércímére adott első HEAD-próba HTTP 401-et kapott; ebből nem következik minden keresési végpont hozzáférése.
-- A teljes keresési kifejezés, a legújabb szerinti rendezés és a szerveroldali időmezők jelentése. A query példa nem igazolt mobil-API hívás.
-- Firebase App Check és tokenkezelés szerepel a kliensben; a program nem állít elő, nem hamisít és nem nyer ki ilyen tokent.
+- Az ellenőrzött anonim keresési cím: `https://mobile-gateway.ingatlan.com/v1/ads/search/{query}?page={page}`. A szükséges `apiLevel`, `buildNumber`, `channel` verziófejlécek automatikusak. Tatabányai és kecskédi keresés HTTP 200 választ adott bejelentkezés és App Check token nélkül.
+- Az `elado+lakas+tatabanya` és `elado+haz+kecsked` keresési kifejezések élőben működtek. Más szűrők, a legújabb szerinti rendezés és a szerveroldali időmezők pontos jelentése még külön ellenőrzendő.
+- Firebase App Check és tokenkezelés szerepel a kliensben, de a tesztelt anonim keresés ezeket nem igényelte. Más végpontokra és későbbi változásokra ez nem garancia. A program nem állít elő vagy nyer ki ilyen tokent.
 - Facebook, Jófogás, Zenga stb. adatkapcsolat még nincs. A közös modell és küldő később új adapterrel bővíthető.
 - Keresztportálos perceptuális kép-összehasonlítás nincs: eltérő képcím/tömörítés mellett az első verzió inkább kettőt küld, mint tévesen elnyomjon egy új lakást.
 - Nincs előfizetéskezelés, fizetés, Telegram-beállítómenü vagy 60 másodperces SLA.
@@ -34,15 +34,19 @@ npm test
 
 A tesztek nem érik el az ingatlan.com-ot vagy a valódi Telegramot, és nem küldenek üzenetet valódi felhasználónak. Az integrációs teszt valódi HTTP-n fogadja és ellenőrzi a létrejött `sendPhoto` kérést egy ideiglenes helyi szerveren.
 
-## Későbbi API-próba
+## Élő API-próba – bot és Redis nélkül
 
-Másold a `.env.example` fájlt `.env` névre. Az `INGATLAN_SEARCH_URL_TEMPLATE` értékébe a ténylegesen validált teljes címet kell írni `{query}` és `{page}` helyőrzőkkel. A program nem találgat útvonalakat. A `NOTIFIER_SEARCHES_JSON` beállításban numerikus Telegram-chat ID-k legyenek karakterláncként.
+Az ellenőrzött cím és verziófejlécek alapértelmezettek; a próbához `.env` sem szükséges. Opcionálisan az `INGATLAN_SEARCH_URL_TEMPLATE` és `INGATLAN_API_HEADERS_JSON` felülírhatja őket. A későbbi worker `NOTIFIER_SEARCHES_JSON` beállításában numerikus Telegram-chat ID-k legyenek karakterláncként.
 
 ```bash
 npm run probe
+npm run probe -- elado+lakas+tatabanya
+npm run test:live
 ```
 
-Ez csak az első oldalt kérdezi le, mezőneveket és darabszámokat ír ki; nem ment állapotot és nem küld értesítést. 401/403/429 esetén megáll. A válaszban `data.list`, `data.pages`, `data.totalFound` szerkezetet vár a kódbeli DTO alapján. Ezt még éles válasszal ellenőrizni kell.
+A `probe` az első oldalt kérdezi le, mezőneveket, darabszámokat és egy publikus magánhirdetés fő adatait írja ki. A `test:live` két teljes, kis körzetre szűrt élő lekérést futtat a valódi feldolgozóval, memóriabeli állapottal és tesztküldővel: ellenőrzi a csendes bootstrapot és az ismételt feldolgozást. Egyik parancs sem küld valódi Telegram-üzenetet vagy ír Redisbe. A CI csak offline teszteket futtat.
+
+A `data.list`, `data.pages`, `data.totalFound`, ár-, képi és hirdetőtípus-mezőket éles válasszal ellenőriztük. 401/403/429 esetén megáll, 426 esetén külön verziófrissítési hibát jelez.
 
 ## Valódi Telegram-próba
 

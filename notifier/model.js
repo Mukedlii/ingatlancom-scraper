@@ -6,12 +6,12 @@ export const hash = value => createHash('sha256').update(value).digest('hex');
 export function normalizeAd(raw, now = new Date().toISOString()) {
     if (!raw || !/^[0-9]+$/.test(String(raw.id))) throw new Error('API_SCHEMA: missing numeric ad ID');
     const properties = Array.isArray(raw.properties) ? raw.properties : [];
-    const condition = properties.find(p => ['állapot', 'ingatlan állapota'].includes(fold(p.name)));
+    const condition = properties.find(p => ['állapot', 'ingatlan állapota', 'az ingatlan állapota'].includes(fold(p.name)));
     const photos = [...(raw.photos ?? []), ...(raw.mediumLargePhotos ?? []), ...(raw.detailedPhotos ?? [])];
     const images = [...new Set(photos.map(p => text(typeof p === 'string' ? p : p?.url)).filter(u => /^https:\/\//.test(u)))];
     return {
         source: 'ingatlan.com', id: String(raw.id), url: `https://ingatlan.com/${raw.id}`,
-        title: text(raw.listingAndPropertyType) || text(raw.propertyTypeFormatted) || 'Ingatlan',
+        title: text(raw.listingAndPropertyType) || [text(raw.listingTypeFormatted), text(raw.propertyTypeFormatted)].filter(Boolean).join(' ') || 'Ingatlan',
         price: text(raw.price), priceHuf: Number.isFinite(raw.priceHuf) ? raw.priceHuf : null,
         city: text(raw.city), address: text(raw.addressTitle) || text(raw.location?.address),
         area: raw.areaSizeSqm > 0 ? raw.areaSizeSqm : null, rooms: text(raw.roomCount),

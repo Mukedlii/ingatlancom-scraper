@@ -18,7 +18,7 @@ Forrás: a felhasználó által feltöltött `ingatlan.com_4.0.5_APKPure.xapk`, 
 | ApiService.loadClusterAds | GET | `users//clusterAds/{adId}` |
 | GoApiService.autoSuggest | GET | `users-sub//autosuggest` |
 
-`searchInAds`: `searchQuery` encoded path-paraméter, `page` query-paraméter, továbbá `ProtectionTag`. Az alkalmazásban `/v1/` és `/v2/` konstansok is vannak, de a teljes produkciós útvonal összeállítása még nincs végigkövetve. A `users//` és `users-sub//` szakaszokat a `UserIdInterceptor` kezeli, ezért ezeket nem szabad változtatás nélkül végleges URL-ként kezelni.
+`searchInAds`: `searchQuery` encoded path-paraméter, `page` query-paraméter, továbbá `ProtectionTag`. A keresési interfész `/v1/` előtagot kap. A `users//` és `users-sub//` szakaszokat a `UserIdInterceptor` kezeli; az anonim keresés végleges útvonala alább szerepel.
 
 ## DTO-kban talált mezők
 
@@ -34,10 +34,36 @@ Forrás: a felhasználó által feltöltött `ingatlan.com_4.0.5_APKPure.xapk`, 
 
 `ListingOwnerType`: `PRIVATE`, `OFFICE`, `RESIDENTAL` (az utóbbi a kódban így szerepel).
 
-Az alkalmazásmodell mezőnevei még nem bizonyítják az éles JSON-mezőneveket, null-kezelést vagy közzétételi idő jelentését. A normalizáló ezért a `createdAt` értékét csak `sourceCreatedAtRaw` néven őrzi meg.
+Az éles JSON-mezőneveket az alább leírt keresési válasszal ellenőriztük; a közzétételi idő pontos jelentése továbbra sincs igazolva. A normalizáló ezért a `createdAt` értékét csak `sourceCreatedAtRaw` néven őrzi meg.
 
 ## Hozzáférés
 
 `HeaderInterceptor`: alkalmazás-/eszközfejlécek, opcionális Bearer-kezelés. `AppCheckInterceptor`: `X-Firebase-AppCheck` fejléc kezelése. `ProtectionLevel`: `STANDARD`, `STRONG`. Ez védelmi mechanizmus jelenlétét jelzi, nem azt, hogy minden végpont azonos védelmet követel.
 
-2026-10-19: a gateway gyökércímére egyetlen HEAD-kérés HTTP 401 választ adott. Nem történt sikeres keresési lekérés, hitelesítési kísérlet vagy védelmi mechanizmus megkerülése. A produkciós adapter konfigurálható, és auth-hibánál megáll.
+A gateway gyökércímének első HEAD-próbája HTTP 401 választ adott. Ez nem a keresési végpont volt; az alább dokumentált teljes keresési kérés sikeres. A produkciós adapter auth-hibánál megáll.
+
+## A teljes kérés igazolása és élő eredmény (2026-10-19)
+
+Az `ModuleKt.retrofitModule$lambda$0$provideRetrofit` metódus a produkciós hosthoz `/v1/` előtagot ad. A `UserIdInterceptor.addUserId` kijelentkezett ágában a `users//` teljes szakaszt üres szövegre cseréli (nem egyszerű perjel-normalizálás).
+
+Ezért a végleges anonim keresés:
+
+`GET https://mobile-gateway.ingatlan.com/v1/ads/search/{searchQuery}?page={page}`
+
+A `HeaderInterceptor` konstruktorában és `addBaseHeaders` metódusában talált, működő verzióadatok:
+
+- `apiLevel: 115`
+- `buildNumber: 273`
+- `channel: ANDROID`
+- `Accept: application/json`
+
+Az azonosított végpont verziófejlécek nélkül HTTP 426 választ adott (alkalmazásfrissítést kért). A fenti három verziófejléccel HTTP 200 `status: success` választ adott. Bejelentkezési token, App Check token, client certificate vagy eszközazonosító nem volt a tesztkérésben. Védelmet nem kellett megkerülni.
+
+| Keresés | HTTP | Találat | Oldal | Első oldali magánhirdetés |
+|---|---:|---:|---:|---:|
+| `elado+lakas+tatabanya` | 200 | 695 | 35 | 14 / 20 |
+| `elado+haz+kecsked` | 200 | 18 | 1 | 4 / 18 |
+
+Ezek pillanatfelvétel-adatok, nem állandó darabszámok. Az éles válasz igazolja a `data.list`, `data.pages`, `data.totalFound` szerkezetet. A képek `photos` listájában URL-karakterláncok is vannak, nem csak objektumok. Az állapot neve a `properties` listában **`Az ingatlan állapota`**. A címhez a `listingTypeFormatted` és `propertyTypeFormatted` összefűzhető. Ezeket a javított normalizáló kezeli.
+
+A `npm run test:live` a valódi `MobileSource` és `Engine` kóddal két teljes kecskédi lekérést is sikeresen lefuttatott: 18 hirdetés csendes bootstrapja, majd 0 új esemény az ismételt lekérésben, összesen kb. 6 másodperc alatt. A küldő ebben a próbában helyettesítő volt: valódi Telegram-üzenet nem ment ki. Természetesen érkező új hirdetésen még nem figyeltünk meg éles kézbesítést. Más végpontokat és az adatfelhasználás szerződéses feltételeit ez nem minősíti.

@@ -9,7 +9,10 @@
     "check": "node --env-file-if-exists=.env notifier/worker.js --once",
     "probe": "node --env-file-if-exists=.env notifier/probe.js",
     "test:telegram": "node --env-file-if-exists=.env notifier/test-message.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:live": "node --env-file-if-exists=.env integration/live.js"
   },
-  "engines": { "node": ">=22.9.0" }
+  "engines": {
+    "node": ">=22.9.0"
+  }
 }

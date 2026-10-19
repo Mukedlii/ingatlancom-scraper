@@ -32,7 +32,7 @@ function setup(options = {}) {
     return { engine, store, source, telegram, searches, advance: ms => { time += ms; } };
 }
 const template = 'https://mobile-gateway.ingatlan.com/unverified/users/ads/search/{query}?page={page}';
-const page = (list, pages = 1, totalFound = list.length) => new Response(JSON.stringify({ data: { list, pages, totalFound } }), { headers: { 'Content-Type': 'application/json' } });
+const page = (list, pages = 1, totalFound = list.length) => new Response(JSON.stringify({ status: 'success', data: { list, pages, totalFound } }), { headers: { 'Content-Type': 'application/json' } });
 
 test('bootstrap is silent; next new private ad sends once, even after price changes', async () => {
     const x = setup(); x.source.ads = [ad(1)];
@@ -130,7 +130,7 @@ test('too many pages refuses partial bootstrap', async () => {
 test('API schema mismatch, duplicate-page gap and changing totals are errors', async () => {
     for (const fn of [async () => new Response('{}'), async () => page([raw()], 2, 2)]) {
         const source = new MobileSource({ urlTemplate: template, fetchImpl: fn });
-        await assert.rejects(source.scan('query', signal()), /SOURCE_SCHEMA|SOURCE_INCOMPLETE/);
+        await assert.rejects(source.scan('query', signal()), /SOURCE_API_ERROR|SOURCE_SCHEMA|SOURCE_INCOMPLETE/);
     }
     let i = 0;
     const source = new MobileSource({ urlTemplate: template, fetchImpl: async () => page([raw(++i)], 2, i === 1 ? 2 : 3) });
@@ -232,4 +232,35 @@ test('a lost state lease prevents the Telegram side effect', async () => {
     x.store.save = async (...args) => { if (++calls === 2) throw new Error('STATE_LOCK_LOST'); await save(...args); };
     await assert.rejects(x.engine.run(signal()), /STATE_LOCK_LOST/);
     assert.equal(x.telegram.sent.length, 0);
+});
+
+test('default mobile route strips anonymous users marker and sends required version headers', async () => {
+    const requests = [];
+    const source = new MobileSource({ fetchImpl: async (url, options) => {
+        requests.push({ url, headers: options.headers });
+        return page([raw()]);
+    } });
+    const ads = await source.scan('elado+haz+kecsked', signal());
+    assert.equal(ads.length, 1);
+    assert.equal(requests[0].url, 'https://mobile-gateway.ingatlan.com/v1/ads/search/elado+haz+kecsked?page=1');
+    assert.equal(requests[0].headers.apiLevel, '115');
+    assert.equal(requests[0].headers.buildNumber, '273');
+    assert.equal(requests[0].headers.channel, 'ANDROID');
+    assert.equal(requests[0].headers.Authorization, undefined);
+});
+test('observed mobile property label and separate listing/type fields are normalized', () => {
+    const item = ad(1, { listingTypeFormatted: 'eladó', propertyTypeFormatted: 'ház',
+        properties: [{ name: 'Az ingatlan állapota', value: 'közepes állapotú' }],
+        photos: ['https://images.example/real-schema.jpg'], createdAt: '2026-07-19T20:51:29Z' });
+    assert.equal(item.condition, 'közepes állapotú');
+    assert.equal(item.title, 'eladó ház');
+    assert.equal(item.images[0], 'https://images.example/real-schema.jpg');
+});
+test('unsupported mobile client versions get an actionable error', async () => {
+    const source = new MobileSource({ fetchImpl: async () => new Response('{}', { status: 426 }) });
+    await assert.rejects(source.page('elado+haz+kecsked', 1, signal()), error => error.code === 'SOURCE_APP_VERSION_UNSUPPORTED');
+});
+test('HTTP 200 API error cannot be treated as a successful snapshot', async () => {
+    const source = new MobileSource({ fetchImpl: async () => new Response(JSON.stringify({ status: 'error', data: { list: [], pages: 0, totalFound: 0 } })) });
+    await assert.rejects(source.scan('query', signal()), /SOURCE_API_ERROR/);
 });

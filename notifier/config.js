@@ -20,7 +20,7 @@ export function config(env = process.env) {
     if (!Number.isInteger(interval) || interval < 15 || interval > 3600) throw new Error('Invalid polling interval');
     const maxPages = Number(env.MAX_SCAN_PAGES || 20);
     if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) throw new Error('Invalid MAX_SCAN_PAGES');
-    return { searches, headers, interval, maxPages, urlTemplate: env.INGATLAN_SEARCH_URL_TEMPLATE,
+    return { searches, headers, interval, maxPages, urlTemplate: env.INGATLAN_SEARCH_URL_TEMPLATE || undefined,
         redisUrl: env.UPSTASH_REDIS_REST_URL, redisToken: env.UPSTASH_REDIS_REST_TOKEN,
         namespace: env.STATE_NAMESPACE || 'ingatlan-notifier:v1', telegramToken: env.TELEGRAM_BOT_TOKEN };
 }
